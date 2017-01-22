@@ -26,11 +26,27 @@ public class Client{
     }
   }
 
+  private void clean(){
+    try{
+      out.close();
+      in.close();
+      socket.close();
+
+    }catch(Exception e){
+      System.out.println("awd");
+      e.printStackTrace();
+    }
+  }
+
   public void run() throws Exception{
     String message;
     try{
       System.out.print("> ");
       while((message = in.readLine()) != null){
+        if(message.equals("QUIT")){
+          clean();
+          break;
+        }
         out.println(message);
         System.out.print("> ");
       }

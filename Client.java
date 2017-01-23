@@ -7,7 +7,7 @@ import java.util.*;
 public class Client{
   private Socket socket;
   private BufferedReader in;
-  private PrintStream out;
+  public PrintStream out;
   private Boolean transfer_file = false;
   private String transfer_sender = null;
 
@@ -93,11 +93,21 @@ class MessageListener implements Runnable {
     try{
       String message;
       while((message = in.readLine()) != null){
-        if(message.matches("START-TRANSFER-RECIEVER:.+")){
-          String sender = message.substring(message.indexOf(":")+1, message.length());
-          client.start_file_transfer_reciever(sender);
+        if(message.matches("START-TRANSFER-RECIEVER")){
+          //String sender = message.substring(message.indexOf(":")+1, message.length());
+          //client.start_file_transfer_reciever(sender);
+          client.out.println("START-TRANSFER-RECIEVER");
           continue;
         }
+        if(message.matches("ACCEPTED-TRANSFER")){
+          client.out.println("ACCEPTED-TRANSFER");
+          continue;
+        }
+        if(message.matches("REJECTED-TRANSFER")){
+          client.out.println("REJECTED-TRANSFER");
+          continue;
+        }
+
         System.out.println(message);
       }
     }catch(Exception e){

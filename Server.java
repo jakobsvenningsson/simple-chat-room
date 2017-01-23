@@ -3,18 +3,39 @@ import java.net.*;
 import java.lang.*;
 import java.util.*;
 
-class Message
-{
-    public String content;
-    public String from;
+class Message{
+    public String content = "";
+    public String from = "";
+    public String to = "";
+    public Boolean server_message = false;
+    public Boolean file_transfer_request = false;
+    public String filename = "";
+    public Boolean error = false;
+    public Message(){}
+    public Message(String content, String to){
+      this.content = content;
+      this.to = to;
+    }
  };
+
+ class Pair{
+     public String reciever;
+     public String filename;
+     public Pair(String reciever, String filename){
+       this.reciever = reciever;
+       this.filename = filename;
+     }
+  };
 
 public class Server{
   private ServerSocket server_socket;
   private TreeMap<String, ClientThread> clients;
   public Server(){
+
     clients = new TreeMap<String, ClientThread>();
     try{
+      System.out.println(Inet4Address.getLocalHost().getHostAddress());
+
       server_socket = new ServerSocket(5200);
     }catch(Exception e){
       e.printStackTrace();
@@ -66,17 +87,21 @@ class MessageConsumer implements Runnable{
         }
       }
       Message message = messageQue.pop();
+
       if(message.content.equals("users")){
         print_users(message.from);
         continue;
       }
+      else if(message.server_message){
+        clients.get(message.to).out.println(message.content);
+      }
+      else if(message.file_transfer_request){
+        clients.get(message.to).out.println(message.content);
+      }
       // Check if client has specified a user
-      else if(message.content.matches(".+-to [a-zA-Z0-9]+")){
-        int index = message.content.indexOf("-to");
-        System.out.println(message.content.substring(index+3, message.content.length()));
-        String reciever = message.content.substring(index+3, message.content.length()).trim();
-        if(clients.containsKey(reciever)){
-          clients.get(reciever).out.println(message.content.substring(0,index) + " from " + message.from);
+      else if(message.to.length()>0){
+        if(clients.containsKey(message.to)){
+          clients.get(message.to).out.println(message.content + " from " + message.from);
         }else{
           clients.get(message.from).out.println("User not found!");
         }
@@ -102,8 +127,20 @@ class ClientThread implements Runnable{
   private TreeMap<String, ClientThread> clients;
   private String name;
   private MessageConsumer m_consumer;
-  private Boolean recieve_file = false;
+  private Boolean transfer_file = false;
+  public LinkedList<Pair> file_requests;
 
+  public synchronized void add_file_request(String from, String filename){
+    file_requests.add(new Pair(from, filename));
+  }
+
+private synchronized void remove_file_request(String reciever, String filename){
+    for(int i = 0; i < file_requests.size(); i++){
+      if(file_requests.get(i).reciever.equals(reciever) && file_requests.get(i).filename.equals(filename)){
+        file_requests.remove(i);
+      }
+    }
+  }
   public ClientThread(Socket socket,TreeMap<String, ClientThread> clients, MessageConsumer consumer){
     try{
       this.clients = clients;
@@ -111,6 +148,8 @@ class ClientThread implements Runnable{
       this.out = new PrintStream(socket.getOutputStream());
       this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
       this.m_consumer = consumer;
+      this.file_requests = new LinkedList<Pair>();
+
     }catch(Exception e){
       System.out.println(e.getMessage());
     }
@@ -128,65 +167,55 @@ class ClientThread implements Runnable{
       System.out.println(e.getMessage());
     }
   }
-  public void transfer_file_sender(Message message){
-    if(!message.content.matches(".+-to [a-zA-Z0-9]+")){
-      clients.get(message.from).out.println("Specify a reciever!");
+
+  private void transfer_file_sender(Message message){
+    // Check if a reciever has been specified.
+    if(message.to.length() == 0){
+      m_consumer.enqueue_message(new Message("Please specify a reciever!", name));
       return;
     }
-    int index = message.content.indexOf("-send-file");
-    String filename = message.content.substring(index+11, message.content.indexOf(" ", index + 11)).trim();
-    index = message.content.indexOf("-to");
-    String reciever = message.content.substring(index + 4, message.content.length()).trim();
-    if(!clients.containsKey(reciever)){
-      clients.get(message.from).out.println("User not found!");
+    if(!clients.containsKey(message.to)){
+      m_consumer.enqueue_message(new Message("User not found!", name));
       return;
     }
-    clients.get(reciever).out.println("START-TRANSFER-RECIEVER");
-    clients.get(reciever).out.println(message.from + " wants to send you the file: " + filename + " ,accept?(y/n)");
-
-    System.out.println("2");
-
-    String response = null;
-    try{
-      response = in.readLine();
-      System.out.println("3");
-
-    }catch(Exception e){
-      e.printStackTrace();
-    }
-    if(response.equals("ACCEPTED-TRANSFER")){
-      System.out.println("accepted");
-    }else{
-      System.out.println("rejected");
-    }
+    message.content = message.from + " wants to send the file " + message.filename + " to you, accept?(y/n)";
+    clients.get(message.to).add_file_request(message.from, message.filename);
+    m_consumer.enqueue_message(message);
   }
 
-  public void transfer_file_reciever(Message m){
-    System.out.println("Transfer reciever started");
-    String response = null;
-    Boolean valid_response = false;
-    while(!valid_response){
-      try{
-        response = in.readLine();
-        if(response.equals("y")){
-          valid_response = true;
-          System.out.println("1");
-          clients.get(m.from).out.println("ACCEPTED-TRANSFER");
-
-        }else if(response.equals("n")){
-          clients.get(m.from).out.println("REJECTED-TRANSFER");
-          return;
-        }else{
-          this.out.println("(y/n)?");
-        }
-      }catch(Exception e){
-        e.printStackTrace();
+  private int find_index(String s){
+    for(int i = 0; i < file_requests.size(); ++i){
+      if(file_requests.get(i).reciever.equals(s)){
+        return i;
       }
     }
+    return -1;
+  }
+
+  private int end_index(String s, String flag){
+    int end_index = s.indexOf(" ", s.indexOf(flag) + flag.length());
+    end_index = end_index == -1 ? s.length() : end_index;
+    return end_index;
+  }
 
 
+  private Message translate_message(String message){
+    Message m = new Message();
+    m.from = this.name;
+    if(message.matches(".*-send-file [a-zA-Z0-9]+.*")){
+      m.file_transfer_request = true;
+      m.filename = message.substring(message.indexOf("-send-file ") + 11, end_index(message, "-send-file "));
+    }
+    if(message.matches(".*-to [a-zA-Z0-9]+.*")){
+      m.to = message.substring(message.indexOf("-to ") + 4, end_index(message, "-to "));
+    }
+    if(message.matches(".*-m [a-zA-Z0-9]+.*")){
+      m.content = message.substring(message.indexOf("-m ") + 3, end_index(message, "-m "));
+    }
+    return m;
 
   }
+
 
   private void listen(){
     try{
@@ -197,18 +226,38 @@ class ClientThread implements Runnable{
           socket.close();
           break;
         }
-        Message m = new Message();
-        m.content = message.toString();
-        m.from = name;
-        if(m.content.equals("START-TRANSFER-RECIEVER")){
-          transfer_file_reciever(m);
-        }
-        if(m.content.matches(".*-send-file [a-zA-Z0-9/]+.*")){
+        Message m = translate_message(message);
+        if(m.file_transfer_request){
           transfer_file_sender(m);
           continue;
         }
+        if(file_requests.size() > 0 && m.to.length() > 0){
+          System.out.println(file_requests.size());
+          System.out.println("1");
+          int index;
+          if((index = find_index(m.to)) != -1){
+            Pair reciever = file_requests.get(index);
+            if(reciever.reciever.equals(m.to)){
+              System.out.println("6");
+              if(m.content.charAt(0) == 'y'){
+                System.out.println("3");
+                  m.content = "APPROVED-TRANSFER:" + name + ";" + reciever.filename
+                  +  " -to " + m.to;
+                  remove_file_request(m.to, reciever.filename);
+                  m_consumer.enqueue_message(m);
+                  continue;
+              }else if(m.content.charAt(0)== 'n'){
+                m.content = "REJECTED-TRANSFER" + " -to " + m.to;
+                m_consumer.enqueue_message(m);
+                remove_file_request(m.to, reciever.filename);
+                continue;
+              }
+            }
+          }
+        }
         this.m_consumer.enqueue_message(m);
       }
+
     }catch(Exception e){
       clients.remove(this.name);
       System.out.println(e.getMessage());
@@ -218,6 +267,8 @@ class ClientThread implements Runnable{
 
   public void run(){
     System.out.println(socket.getRemoteSocketAddress() + " has connected.");
+    System.out.println(socket.getInetAddress().getHostAddress() + " has connected.");
+
     get_client_username();
     listen();
   }

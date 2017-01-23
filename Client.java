@@ -8,6 +8,8 @@ public class Client{
   private Socket socket;
   private BufferedReader in;
   private PrintStream out;
+  private Boolean transfer_file = false;
+  private String transfer_sender = null;
 
   public Client(){
     try{
@@ -19,7 +21,7 @@ public class Client{
       System.exit(-1);
     }
     try{
-      (new Thread(new MessageListener(socket))).start();
+      (new Thread(new MessageListener(socket, this))).start();
     }catch(Exception e){
       System.out.println(e.getMessage());
       System.exit(-1);
@@ -33,9 +35,18 @@ public class Client{
       socket.close();
 
     }catch(Exception e){
-      System.out.println("awd");
       e.printStackTrace();
     }
+  }
+
+  private void start_file_transfer_sender(String message){
+
+  }
+
+  public void start_file_transfer_reciever(String sender){
+    System.out.println("reciever ready");
+    transfer_file = true;
+    transfer_sender = sender;
   }
 
   public void run() throws Exception{
@@ -47,9 +58,15 @@ public class Client{
           clean();
           break;
         }
+        if(message.matches(".*-send-file [a-zA-Z0-9/]+.*")){
+          start_file_transfer_sender(message);
+        }
+        if(transfer_file) message = message + " -to " + transfer_sender;
         out.println(message);
         System.out.print("> ");
       }
+      System.out.println("outside for");
+
     }catch(Exception e){
       System.out.println(e.getMessage());
       System.exit(-1);
@@ -65,14 +82,22 @@ public class Client{
 class MessageListener implements Runnable {
   private Socket socket;
   BufferedReader in;
-  public MessageListener(Socket socket) throws Exception{
+  Client client;
+  public MessageListener(Socket socket, Client client) throws Exception{
     this.socket = socket;
     this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+    this.client = client;
   }
+
   public void run() {
     try{
       String message;
       while((message = in.readLine()) != null){
+        if(message.matches("START-TRANSFER-RECIEVER:.+")){
+          String sender = message.substring(message.indexOf(":")+1, message.length());
+          client.start_file_transfer_reciever(sender);
+          continue;
+        }
         System.out.println(message);
       }
     }catch(Exception e){

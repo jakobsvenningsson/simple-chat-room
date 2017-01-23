@@ -11,9 +11,9 @@ class Message
 
 public class Server{
   private ServerSocket server_socket;
-  private TreeMap<String, PrintStream> clients;
+  private TreeMap<String, ClientThread> clients;
   public Server(){
-    clients = new TreeMap<String, PrintStream>();
+    clients = new TreeMap<String, ClientThread>();
     try{
       server_socket = new ServerSocket(5200);
     }catch(Exception e){
@@ -38,18 +38,18 @@ public class Server{
 }
 
 class MessageConsumer implements Runnable{
-  private TreeMap<String, PrintStream> clients;
+  private TreeMap<String, ClientThread> clients;
   private LinkedList<Message> messageQue;
 
-  public MessageConsumer(TreeMap<String, PrintStream> clients){
+  public MessageConsumer(TreeMap<String, ClientThread> clients){
     this.clients = clients;
     this.messageQue = new LinkedList<Message>();
   }
 
   private void print_users(String from){
-    clients.get(from).println("Connected users:");
+    clients.get(from).out.println("Connected users:");
     for(String user : clients.keySet()){
-      clients.get(from).println(user);
+      clients.get(from).out.println(user);
     }
   }
   public synchronized void enqueue_message(Message message){
@@ -68,21 +68,22 @@ class MessageConsumer implements Runnable{
       Message message = messageQue.pop();
       if(message.content.equals("users")){
         print_users(message.from);
+        continue;
       }
       // Check if client has specified a user
-      if(message.content.matches(".+-to.+")){
+      else if(message.content.matches(".+-to [a-zA-Z0-9]+")){
         int index = message.content.indexOf("-to");
         System.out.println(message.content.substring(index+3, message.content.length()));
         String reciever = message.content.substring(index+3, message.content.length()).trim();
         if(clients.containsKey(reciever)){
-          clients.get(reciever).println(message.content.substring(0,index) + " from " + message.from);
+          clients.get(reciever).out.println(message.content.substring(0,index) + " from " + message.from);
         }else{
-          clients.get(message.from).println("User not found!");
+          clients.get(message.from).out.println("User not found!");
         }
       // No user specified -> send to all clients.
       }else{
         for(String key : clients.keySet()){
-          clients.get(key).println(message.content + " from " + message.from);
+          clients.get(key).out.println(message.content + " from " + message.from);
         }
       }
     }
@@ -96,13 +97,13 @@ class MessageConsumer implements Runnable{
 class ClientThread implements Runnable{
 
   private Socket socket;
-  private PrintStream out;
+  public PrintStream out;
   private BufferedReader in;
-  private TreeMap<String, PrintStream> clients;
+  private TreeMap<String, ClientThread> clients;
   private String name;
   private MessageConsumer m_consumer;
 
-  public ClientThread(Socket socket,TreeMap<String, PrintStream> clients, MessageConsumer consumer){
+  public ClientThread(Socket socket,TreeMap<String, ClientThread> clients, MessageConsumer consumer){
     try{
       this.clients = clients;
       this.socket = socket;
@@ -121,10 +122,40 @@ class ClientThread implements Runnable{
       while(!accepted_name && (this.name = in.readLine()) != null){
         accepted_name = this.name.length() > 0 ? true : false;
       }
-      clients.put(this.name, out);
+      clients.put(this.name, this);
     }catch(Exception e){
       System.out.println(e.getMessage());
     }
+  }
+  public void transfer_file(Message message){
+    if(!message.content.matches(".+-to [a-zA-Z0-9]+")){
+      clients.get(message.from).out.println("Specify a reciever!");
+      return;
+    }
+    int index = message.content.indexOf("-send-file");
+    String filename = message.content.substring(index+11, message.content.indexOf(" ", index + 11)).trim();
+    index = message.content.indexOf("-to");
+    String reciever = message.content.substring(index + 4, message.content.length()).trim();
+    if(!clients.containsKey(reciever)){
+      clients.get(message.from).out.println("User not found!");
+      return;
+    }
+    clients.get(reciever).out.println("START-TRANSFER-RECIEVER:" + message.from);
+    clients.get(reciever).out.println(message.from + " wants to send you the file: " + filename + " ,accept?(y/n)");
+
+    String response = null;
+    try{
+      response = in.readLine();
+    }catch(Exception e){
+      e.printStackTrace();
+    }
+    if(response.equals("y")){
+      System.out.println("accepted");
+    }else{
+      System.out.println("rejected");
+
+    }
+
   }
 
   private void listen(){
@@ -139,10 +170,14 @@ class ClientThread implements Runnable{
         Message m = new Message();
         m.content = message.toString();
         m.from = name;
+
+        if(m.content.matches(".*-send-file [a-zA-Z0-9/]+.*")){
+          transfer_file(m);
+          continue;
+        }
         this.m_consumer.enqueue_message(m);
       }
     }catch(Exception e){
-      System.out.println("hej");
       clients.remove(this.name);
       System.out.println(e.getMessage());
     }

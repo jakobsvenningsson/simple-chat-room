@@ -100,6 +100,7 @@ class MessageListener implements Runnable {
           continue;
         }
         if(message.matches("ACCEPTED-TRANSFER")){
+          System.out.println("A");
           client.out.println("ACCEPTED-TRANSFER");
           continue;
         }

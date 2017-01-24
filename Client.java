@@ -9,9 +9,10 @@ public class Client{
   private BufferedReader in;
   public PrintStream out;
 
-  public Client(){
+  public Client(int port, String ip){
+
     try{
-      this.socket = new Socket("85.229.241.181", 5200);
+      this.socket = new Socket(ip , port);
       this.out = new PrintStream(socket.getOutputStream());
       this.in = new BufferedReader(new InputStreamReader(System.in));
     }catch(Exception e){
@@ -52,17 +53,13 @@ public class Client{
     }
 
     try{
-      int port = 5000;
-      Boolean found_port = true;
+      int port = 5001;
+      Boolean found_port = false;
       ServerSocket server_socket = null;
-      while(found_port){
-        try{
+
           server_socket = new ServerSocket(port);
           found_port = true;
-        }catch(Exception e){
-          port++;
-        }
-      }
+
       out.println("-m PORT:" + port + ";" + file.length() + ";" + filename + " -to " + reciever);
       Socket socket = server_socket.accept();
       DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
@@ -81,12 +78,21 @@ public class Client{
     System.out.println("transfer sender done");
   }
 
+  private Boolean file_exists(String message){
+    String flag = "-send-file ";
+    int end_index = message.indexOf(" ", message.indexOf(flag) + flag.length());
+    end_index = end_index == -1 ? message.length() : end_index;
+    String filename = message.substring(message.indexOf("-send-file ") + 11, end_index);
+    File file = new File(filename);
+    return (file.exists() && !file.isDirectory());
+  }
+
   public void start_file_transfer_reciever(String message){
     int port = Integer.parseInt(message.substring(5,9));
     int size = Integer.parseInt(message.substring(10, message.indexOf(";", 10)));
     String filename = message.substring(message.indexOf(";", 10) + 1, message.indexOf(" "));
     try{
-      Socket socket = new Socket("localhost", port);
+      Socket socket = new Socket("130.237.227.11", port);
       byte [] buffer  = new byte [size];
       DataInputStream dis = new DataInputStream(socket.getInputStream());
       FileOutputStream fos = new FileOutputStream(filename);
@@ -112,10 +118,15 @@ public class Client{
           clean();
           break;
         }
+        if(message.matches(".*-send-file [a-zA-Z0-9]+.*")){
+          if(!file_exists(message)){
+            System.out.println("File does not exist!");
+            continue;
+          }
+        }
         out.println(message);
         System.out.print("> ");
       }
-      System.out.println("outside for");
 
     }catch(Exception e){
       System.out.println(e.getMessage());
@@ -124,7 +135,14 @@ public class Client{
   }
 
   public static void main(String[] args) throws Exception{
-    Client client = new Client();
+    if(args.length < 2){
+      System.out.println("Please specifiy port and ip-adress! <port> <ip-address>");
+      System.exit(-1);
+    }
+    int port = Integer.parseInt(args[0]);
+    String ip = args[1];
+
+    Client client = new Client(port, ip);
     client.run();
   }
 }
@@ -154,6 +172,7 @@ class MessageListener implements Runnable {
           client.start_file_transfer_reciever(message);
         }else{
           System.out.println(message);
+          System.out.print("> ");
         }
       }
     }catch(Exception e){
